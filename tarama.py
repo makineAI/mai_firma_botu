@@ -16,6 +16,8 @@ def log(msg):
 def airtable_ekle(data):
     url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
     headers = {"Authorization": f"Bearer {AIRTABLE_TOKEN}", "Content-Type": "application/json"}
+    
+    # Airtable 'Attachment' alanı için format
     payload = {
         "fields": {
             "firma_adi": data.get("firma_adi"),
@@ -31,49 +33,50 @@ def airtable_ekle(data):
 def veri_ayikla(html, link):
     soup = BeautifulSoup(html, 'html.parser')
     
-    # 1. Başlık: H1 yoksa Title'dan al (Daha garantidir)
+    # 1. Başlık Seçimi
     unvan = soup.select_one('h1.elementor-heading-title') or soup.select_one('h1')
-    unvan_text = unvan.get_text(strip=True) if unvan else soup.title.string.split('|')[0].strip()
+    unvan_text = unvan.get_text(strip=True) if unvan else ""
     
-    if any(x in unvan_text.lower() for x in ['başvurusu', 'iletisim', 'uyelerimiz']): return None
+    # SERT FİLTRE: Firma olmayan sayfaları içeriğe bakarak da ele
+    yasakli_kelimeler = ['bülten', 'haber', 'duyuru', 'komite', 'başvuru', 'üyelik', 'etik', 'vizyon', 'iletisim']
+    if not unvan_text or any(x in unvan_text.lower() for x in yasakli_kelimeler):
+        return None
 
     logo_url, web_url = "", ""
 
-    # 2. LOGO: Sayfadaki en büyük resmi veya 'logo' geçen ilk resmi bul
+    # 2. AGRESİF LOGO TEMİZLİĞİ
     images = soup.find_all('img')
     for img in images:
-        src = img.get('srcset', '').split(' ')[0] or img.get('src') or img.get('data-src')
-        if src and any(x in src.lower() for x in ['logo', 'member', 'uye']):
+        src = ""
+        srcset = img.get('srcset')
+        if srcset:
+            # En geniş resmi seç ve temizle
+            src = [p.strip().split(' ')[0] for p in srcset.split(',')][-1]
+        if not src:
+            src = img.get('data-src') or img.get('src')
+        
+        if src and any(x in src.lower() for x in ['logo', 'member', 'uye', 'uploads']):
             logo_url = urljoin(link, src)
+            # WordPress'in eklediği -300x300 gibi boyutları SİL (Airtable orijinali sever)
+            logo_url = re.sub(r'-\d+x\d+', '', logo_url)
+            # Varsa .webp sonrasındaki parametreleri temizle
+            logo_url = logo_url.split('?')[0]
             break
 
-    # 3. WEB URL: 'http' içeren ve firma ismiyle eşleşmeyen dış linkleri tara
-    # Tabloyu bulamazsa bile a etiketlerinden ayıklamaya çalışır
-    links = soup.find_all('a', href=True)
-    for a in links:
-        href = a['href']
-        if "http" in href and not any(x in href for x in ['imder.org.tr', 'isder.org.tr', 'facebook', 'linkedin', 'instagram', 'twitter']):
-            web_url = href
+    # 3. WEB URL (Tablo içinde "Web Sitesi" yazan yer)
+    for row in soup.find_all('tr'):
+        if "Web Sitesi" in row.get_text():
+            a = row.find('a')
+            if a: web_url = a.get('href')
             break
 
     if not web_url: return None
-    
-    # Logo URL temizliği
-    if logo_url: logo_url = re.sub(r'-\d+x\d+', '', logo_url)
-
     return {"firma_adi": unvan_text, "web_url": web_url, "logo": logo_url}
 
 def baslat():
-    log("🚀 OPERASYON: RADİKAL ÇÖZÜM")
+    log("🚀 AYIKLANMIŞ VE LOGO ODAKLI TARAMA")
     session = requests.Session()
-    # EN ÜST SEVİYE HEADER (Tarayıcı taklidi)
-    session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache'
-    })
+    session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0'})
 
     siteler = [
         {"url": "https://imder.org.tr/uyelerimiz/", "domain": "imder.org.tr"},
@@ -81,36 +84,30 @@ def baslat():
     ]
 
     for site in siteler:
-        log(f"🔎 {site['domain']} ana listesi çekiliyor...")
+        log(f"🔎 {site['domain']} taranıyor...")
         try:
             r = session.get(site["url"], timeout=30, verify=False)
             soup = BeautifulSoup(r.text, 'html.parser')
             
-            # Sadece firma olabilecek linkleri filtrele (link sonu / ile bitenler genelde firmadır)
-            links = {urljoin(site["url"], a['href']) for a in soup.find_all('a', href=True) 
-                     if site["domain"] in a['href'] and len(a['href'].strip('/').split('/')) >= 3}
+            # LİNK FİLTRESİ: Basın bülteni ve kurumsal sayfaları en baştan at
+            links = set()
+            for a in soup.find_all('a', href=True):
+                h = a['href']
+                # Firma detay sayfaları genellikle 3-4 kırılımlı linklerdir
+                if site["domain"] in h and len(h.strip('/').split('/')) >= 3:
+                    if not any(x in h.lower() for x in ['haberler', 'bulten', 'basin', 'etik', 'komite', 'uye-ol', 'iletisim']):
+                        links.add(urljoin(site["url"], h))
 
             for link in links:
-                if any(x in link for x in ['/page/', '/etik-', '/komite', '/uyelik', '/mavi-yaka', '/beyaz-yaka', '/iletisim', '/uyelerimiz/']): continue
-                
                 try:
-                    log(f"🔗 Giriliyor: {link}")
                     detay_r = session.get(link, timeout=15, verify=False)
-                    if "cloudflare" in detay_r.text.lower():
-                        log("⚠️ Cloudflare engeline takıldık!")
-                        continue
-                    
                     veri = veri_ayikla(detay_r.text, link)
                     if veri:
                         status = airtable_ekle(veri)
-                        log(f"✅ {veri['firma_adi']} -> Airtable: {status}")
-                    else:
-                        log(f"❌ Veri boş: {link}")
-                    
-                    time.sleep(2) # Engellenmemek için süreyi artırdık
+                        log(f"✅ {veri['firma_adi']} | Logo: {'EVET' if veri['logo'] else 'HAYIR'} | Airtable: {status}")
+                        time.sleep(1) # Airtable hız limiti koruması
                 except: continue
-        except Exception as e:
-            log(f"💥 Ana hata: {e}")
+        except Exception as e: log(f"💥 Hata: {e}")
 
 if __name__ == "__main__":
     baslat()
