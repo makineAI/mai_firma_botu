@@ -1,15 +1,16 @@
 name: Firma Tarama Botu
 
-# Bu blok o uzun sarı uyarıyı kapatır
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 on:
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Uyarıyı kapatmak için en etkili yer burası:
+    env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
     steps:
       - name: Kodu Cek
         uses: actions/checkout@v4
