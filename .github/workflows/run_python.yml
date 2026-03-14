@@ -6,9 +6,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Sadece bir tanesini bırakıyoruz ki GitHub hata vermesin
     env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # O sarı uyarıyı susturan komut
 
     steps:
       - name: Kodu Cek
@@ -17,7 +16,7 @@ jobs:
       - name: Python Kur
         uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: '3.12'
 
       - name: Kutuphaneleri Yukle
         run: pip install requests beautifulsoup4 urllib3
