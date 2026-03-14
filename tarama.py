@@ -17,7 +17,7 @@ def airtable_ekle(data):
     url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
     headers = {"Authorization": f"Bearer {AIRTABLE_TOKEN}", "Content-Type": "application/json"}
     
-    # Airtable'da 'platform' isminde bir sütun açtığından emin ol
+    # Airtable'da 'platform' isminde bir sütun (Single line text) açtığından emin ol
     payload = {
         "fields": {
             "firma_adi": data.get("firma_adi"),
@@ -34,7 +34,6 @@ def airtable_ekle(data):
 def veri_ayikla(html, link, platform_adi):
     soup = BeautifulSoup(html, 'html.parser')
     
-    # Başlık Çekme
     unvan = soup.select_one('h1.elementor-heading-title') or soup.select_one('h1')
     unvan_text = unvan.get_text(strip=True) if unvan else ""
     
@@ -45,28 +44,22 @@ def veri_ayikla(html, link, platform_adi):
 
     logo_url, web_url = "", ""
 
-    # --- NOKTA ATIŞI LOGO AVCISI ---
-    # Senin verdiğin HTML yapısına göre 'img' etiketlerini tara
-    images = soup.find_all('img')
-    for img in images:
-        srcset = img.get('srcset')
-        src = img.get('src')
-        
-        # Eğer srcset varsa, en büyük resmi (genellikle en sonda 800w vb. olandır) bul
+    # --- NOKTA ATIŞI LOGO AVCISI (srcset Parçalama) ---
+    img_tag = soup.select_one('.elementor-widget-image img') or soup.select_one('img[class*="wp-image"]')
+    if img_tag:
+        srcset = img_tag.get('srcset')
         if srcset:
+            # Virgülle ayrılan linklerden en sondaki (en büyük olanı) al
             parts = srcset.split(',')
-            # En son parçayı al (genellikle en kaliteli/temiz olan)
-            last_part = parts[-1].strip().split(' ')[0]
-            logo_url = last_part
-        elif src:
-            logo_url = src
+            best_link = parts[-1].strip().split(' ')[0]
+            logo_url = best_link
+        else:
+            logo_url = img_tag.get('src') or img_tag.get('data-src')
 
-        # Firma logosu olduğundan emin ol (site logosunu çekmemek için filtre)
-        if logo_url and any(x in logo_url.lower() for x in ['uploads', 'member', 'uye', 'logo']):
-            # Airtable için temizleme: -300x300 gibi boyut eklerini ve gereksiz uzantıları sil
+        # Temizlik: -300x300 gibi boyut eklerini silerek orijinal dosyaya ulaş
+        if logo_url:
             logo_url = re.sub(r'-\d+x\d+', '', logo_url)
             logo_url = urljoin(link, logo_url)
-            break
 
     # --- WEB SİTESİ BULUCU ---
     for row in soup.find_all('tr'):
@@ -94,20 +87,24 @@ def baslat():
             r = session.get(site["url"], timeout=30, verify=False)
             soup = BeautifulSoup(r.text, 'html.parser')
             
-            # Link toplama ve temizleme
-            domain = site['platform'] + ".org.tr"
-            links = {urljoin(site["url"], a['href']) for a in soup.find_all('a', href=True) 
-                     if domain in a['href'] and len(a['href'].strip('/').split('/')) >= 3}
+            # Linkleri toplama: Daha kapsayıcı bir seçici
+            links = set()
+            for a in soup.find_all('a', href=True):
+                href = a['href']
+                if site['platform'] in href and len(href.strip('/').split('/')) >= 4:
+                    if not any(x in href for x in ['/page/', '/etik-', '/komite', '/uyelik', '/iletisim']):
+                        links.add(urljoin(site["url"], href))
+
+            log(f"📦 {len(links)} firma linki bulundu. Detaylar işleniyor...")
 
             for link in links:
-                if any(x in link for x in ['/page/', '/etik-', '/komite', '/uyelik', '/iletisim']): continue
                 try:
                     detay_r = session.get(link, timeout=15, verify=False)
                     veri = veri_ayikla(detay_r.text, link, site['platform'])
                     if veri:
                         status = airtable_ekle(veri)
                         log(f"✅ [{site['platform']}] {veri['firma_adi']} | Airtable: {status}")
-                        time.sleep(1) # Airtable sınırı için
+                        time.sleep(1) 
                 except: continue
         except Exception as e: log(f"💥 Hata: {e}")
 
