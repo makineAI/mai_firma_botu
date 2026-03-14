@@ -1,4 +1,7 @@
-name: Firma Tarama Botu
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  
+  name: Firma Tarama Botu
 
 on:
   workflow_dispatch: # Manuel olarak baslatmak icin
