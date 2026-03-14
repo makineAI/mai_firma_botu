@@ -6,9 +6,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Uyarıyı kapatmak için en etkili yer burası:
+    # Sadece bir tanesini bırakıyoruz ki GitHub hata vermesin
     env:
-      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
