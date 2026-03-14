@@ -1,13 +1,13 @@
-# 🤖 MakineAI Web Tarama Botu
+# 🤖 MakineAI Otonom Web Tarayıcı (Crawler)
 
-Bu bot, belirlenen firmaların resmi web sitelerine gider, site içeriğini analiz eder ve firmaya ait kurumsal bilgileri (logo, iletişim vb.) ayıklayarak Airtable'a aktarır.
+Bu bot, herhangi bir manuel liste (Excel vb.) kullanmadan, hedef web sitelerini otonom olarak tarar ve verileri ayıklar.
 
-## 🔍 Neler Yapar?
-1. Verilen web adreslerini tek tek ziyaret eder.
-2. Web sitesi kodları (HTML) içinde logo ve kurumsal kimlik izlerini sürer.
-3. Bulduğu verileri anlık olarak Airtable veritabanına işler.
+## ⚙️ Nasıl Çalışır?
+- **Keşif:** Belirlenen ana kaynak sitelerdeki firma linklerini otomatik olarak tespit eder.
+- **Analiz:** Keşfedilen her bir web sitesini derinlemesine tarayarak kurumsal kimlik verilerini toplar.
+- **Aktarım:** Toplanan verileri gerçek zamanlı olarak Airtable veritabanına gönderir.
 
-## 🛠️ Teknik Altyapı
-- **Dil:** Python 3.9
-- **Kütüphaneler:** BeautifulSoup4 (Web Kazıma), Requests (Web Bağlantısı)
-- **Veri Deposu:** Airtable API
+## 🛠️ Yetenekler
+- Manuel veri girişi gerektirmez.
+- Web sitelerindeki yapısal değişiklikleri dinamik olarak takip eder.
+- API entegrasyonu ile kesintisiz veri akışı sağlar.
