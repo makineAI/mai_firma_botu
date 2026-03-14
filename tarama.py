@@ -7,23 +7,22 @@ def veri_ayikla(soup):
     inner_box = soup.select_one('.e-con-inner')
     
     if inner_box:
-        # LOGO GARANTİSİ:
+        # --- LOGO CERRAHİSİ ---
         img = inner_box.select_one('.elementor-widget-image img')
         if img:
             # 1. Strateji: srcset içindeki en yüksek çözünürlüklü (genellikle sonuncu) linki al
             srcset = img.get('srcset')
             if srcset:
-                # Virgülle ayrılan linklerden en temiz olanı (genellikle ilk veya son) bulalım
-                parts = srcset.split(',')
-                # En geniş olanı (genellikle sonuncu) seçmek için:
-                last_part = parts[-1].strip().split(' ')[0]
-                logo_url = last_part
+                # Virgülle ayrılan linklerden en temizini (genellikle sonuncuyu) seç
+                parts = [p.strip().split(' ')[0] for p in srcset.split(',')]
+                if parts:
+                    logo_url = parts[-1] # En büyük boyut genellikle sondadır
             
-            # 2. Strateji: Eğer srcset yoksa veya başarısızsa src/data-src bak
+            # 2. Strateji: Eğer srcset yoksa src bak
             if not logo_url or "data:image" in logo_url:
                 logo_url = img.get('src') or img.get('data-src')
 
-        # WEB SİTESİ GARANTİSİ:
+        # --- WEB SİTESİ ---
         for row in inner_box.find_all('tr'):
             if "Web Sitesi" in row.get_text():
                 a = row.find('a')
@@ -32,10 +31,12 @@ def veri_ayikla(soup):
 
     if not web_url or "http" not in web_url: return None
     
-    # URL Temizliği: .webp'den sonraki parametreleri temizle (Airtable'ın tanıması için)
-    if logo_url and ".webp" in logo_url:
-        logo_url = logo_url.split(".webp")[0] + ".webp"
-    elif logo_url and ".png" in logo_url:
-        logo_url = logo_url.split(".png")[0] + ".png"
-
+    # --- KRİTİK: URL TEMİZLİĞİ ---
+    # Airtable, sonunda -300x300.webp gibi ekler olan linkleri bazen reddeder.
+    # Orijinal dosyaya gitmek için varsa bu ekleri temizliyoruz.
+    if logo_url:
+        import re
+        # Örnek: -300x300.png.webp -> .png veya .webp haline getirir
+        logo_url = re.sub(r'-\d+x\d+', '', logo_url)
+    
     return {"firma_adi": unvan_text, "web_url": web_url, "logo": logo_url}
