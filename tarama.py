@@ -8,6 +8,7 @@ from urllib.parse import urljoin
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+# --- Airtable Bilgileri ---
 AIRTABLE_TOKEN = os.environ.get('AIRTABLE_TOKEN')
 AIRTABLE_BASE_ID = os.environ.get('AIRTABLE_BASE_ID')
 AIRTABLE_TABLE_NAME = os.environ.get('AIRTABLE_TABLE_NAME')
@@ -20,7 +21,7 @@ def airtable_ekle(data):
     url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
     headers = {"Authorization": f"Bearer {AIRTABLE_TOKEN}", "Content-Type": "application/json"}
     
-    # Airtable için Attachment (Ek) formatı
+    # Airtable logoyu 'Attachment' olarak bekler
     logo_field = [{"url": data.get("logo")}] if data.get("logo") else []
     
     payload = {
@@ -35,32 +36,29 @@ def airtable_ekle(data):
         return res.status_code
     except: return 500
 
-def veri_ayikla(soup):
-    # 1. UNVAN (H1 başlığı)
+def veri_ayikla(soup, site_id):
+    # 1. Firma Unvanı
     unvan = soup.select_one('h1.elementor-heading-title')
     unvan_text = unvan.get_text(strip=True) if unvan else None
-    
-    # Filtre: Kurumsal sayfaları geç
-    if not unvan_text or any(x in unvan_text.lower() for x in ['üyelik', 'etik', 'komite']):
-        return None
+    if not unvan_text or any(x in unvan_text.lower() for x in ['üyelik', 'etik', 'komite']): return None
 
-    # 2. LOGO (SENİN NOKTA ATIŞI VERDİĞİN YER)
+    # 2. Logo (Senin verdiğin nokta atışı yapılar)
     logo_url = ""
-    # .elementor-widget-image içindeki img etiketine kilitlen
+    # Her iki site için de ortak olan resim kutusunu bul
     img_container = soup.select_one('.elementor-widget-image img')
     
     if img_container:
-        # ÖNCELİK: srcset (Senin attığın kodda gerçek .png/.webp linkleri burada)
+        # ÖNCELİK: srcset (Senin gönderdiğin kodda temiz resimler burada)
         srcset = img_container.get('srcset')
         if srcset:
-            # Virgülle ayrılmış linklerden ilkini al ve temizle
+            # Virgülle ayrılan linklerden en temizini çek
             logo_url = srcset.split(',')[0].split(' ')[0].strip()
         
-        # EĞER srcset YOKSA: Normal src'ye bak
+        # Eğer srcset yoksa src veya data-src bak
         if not logo_url or "data:image" in logo_url:
             logo_url = img_container.get('src') or img_container.get('data-src')
 
-    # 3. WEB SİTESİ (Tablodaki 'Web Sitesi' satırı)
+    # 3. Web Sitesi (Tablo içindeki Web Sitesi satırı)
     web_url = ""
     for row in soup.find_all('tr'):
         if "Web Sitesi" in row.get_text():
@@ -73,7 +71,7 @@ def veri_ayikla(soup):
     return {"firma_adi": unvan_text, "web_url": web_url, "logo": logo_url}
 
 def baslat():
-    log("🚀 LOGOLAR DAHİL KESİN TARAMA BAŞLADI")
+    log("🚀 LOGO GARANTİLİ TARAMA BAŞLADI")
     session = requests.Session()
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0'}
 
@@ -99,10 +97,9 @@ def baslat():
                 try:
                     detay_r = session.get(link, headers=headers, timeout=15, verify=False)
                     detay_soup = BeautifulSoup(detay_r.text, 'html.parser')
-                    veri = veri_ayikla(detay_soup)
+                    veri = veri_ayikla(detay_soup, site['id'])
                     
                     if veri:
-                        # Göreceli URL'leri (/) tam URL'ye çevir
                         if veri["logo"] and not veri["logo"].startswith('http'):
                             veri["logo"] = urljoin(link, veri["logo"])
                         
