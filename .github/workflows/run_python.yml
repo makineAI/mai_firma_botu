@@ -1,5 +1,6 @@
 name: Firma Tarama Botu
 
+# Bu blok o uzun sarı uyarıyı kapatır
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -16,7 +17,7 @@ jobs:
       - name: Python Kur
         uses: actions/setup-python@v5
         with:
-          python-version: '3.9' # Burada _ yerine - kullandık, hata düzeldi.
+          python-version: '3.9'
 
       - name: Kutuphaneleri Yukle
         run: pip install requests beautifulsoup4 urllib3
