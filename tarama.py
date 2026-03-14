@@ -22,7 +22,8 @@ def airtable_ekle(data):
     url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
     headers = {"Authorization": f"Bearer {AIRTABLE_TOKEN}", "Content-Type": "application/json"}
     
-    logo_field = [{"url": data.get("logo")}] if data.get("logo") and "http" in data.get("logo") else []
+    # Airtable için logo formatı
+    logo_field = [{"url": data.get("logo")}] if data.get("logo") else []
 
     payload = {
         "fields": {
@@ -42,87 +43,73 @@ def detay_sayfasi_coz(url, session, headers):
         r = session.get(url, headers=headers, timeout=15, verify=False)
         soup = BeautifulSoup(r.text, 'html.parser')
         
-        # 1. FIRMA UNVANI (Nokta Atışı)
+        # 1. FIRMA ADI
         unvan_tag = soup.select_one('h1.elementor-heading-title')
         unvan = unvan_tag.get_text(strip=True) if unvan_tag else None
-        if not unvan or unvan in processed_names: return None
+        if not unvan or any(k in unvan.lower() for k in ['etik', 'komite', 'üyelik']): return None
 
-        # 2. LOGO (Nokta Atışı - img srcset ve src kontrolü)
+        # 2. LOGO (SENİN ATTIĞIN NOKTA ATIŞI YAPI)
         logo_url = ""
-        # elementor-widget-image içindeki img etiketine bak
-        img_tag = soup.select_one('.elementor-widget-image img')
-        if img_tag:
-            # Önce srcset (çünkü Elementor asıl resmi burada tutuyor olabilir)
-            srcset = img_tag.get('srcset')
-            if srcset:
-                # En yüksek çözünürlüklü olanı veya ilkini al
-                logo_url = srcset.split(',')[0].split(' ')[0]
-            else:
-                # srcset yoksa normal src veya lazy-load src'lere bak
-                logo_url = img_tag.get('src') or img_tag.get('data-src') or img_tag.get('data-lazy-src')
+        # Her iki dernek için de ortak olan ana widget kapsayıcısını bul
+        logo_container = soup.select_one('.elementor-widget-image')
+        if logo_container:
+            img_tag = logo_container.find('img')
+            if img_tag:
+                # Srcset içindeki en temiz linki çek (Senin attığın .webp uzantılı linkler buradadır)
+                srcset = img_tag.get('srcset')
+                if srcset:
+                    # Virgülle ayrılmış linklerden ilkini al
+                    logo_url = srcset.split(',')[0].split(' ')[0].strip()
+                else:
+                    logo_url = img_tag.get('src')
 
-        # 3. WEB URL (Nokta Atışı - Tablo hücresi kontrolü)
+        # 3. WEB URL (TABLO YAPISI)
         web_url = ""
-        # Sayfadaki tüm <tr> etiketlerini gez
-        for row in soup.find_all('tr'):
-            tds = row.find_all('td')
-            if len(tds) >= 2:
-                # Eğer ilk td "Web Sitesi" yazısını içeriyorsa
-                if "Web Sitesi" in tds[0].get_text():
-                    # İkinci td'nin içindeki <a> etiketini veya direkt metni al
-                    a_link = tds[1].find('a')
-                    web_url = a_link.get('href') if a_link else tds[1].get_text(strip=True)
-                    break
+        rows = soup.find_all('tr')
+        for row in rows:
+            cells = row.find_all('td')
+            if len(cells) >= 2 and "Web Sitesi" in cells[0].get_text():
+                a_tag = cells[1].find('a')
+                web_url = a_tag['href'] if a_tag else cells[1].get_text(strip=True)
+                break
         
-        # URL temizliği (Eğer sadece metin gelmişse ve http içermiyorsa başına ekle)
-        if web_url and not web_url.startswith('http'):
-            web_url = "http://" + web_url.replace(" ", "")
+        if not web_url or "http" not in web_url: return None
 
-        if not unvan: return None
-
-        log(f"🏢 İşleniyor: {unvan} | Web: {web_url[:30]}... | Logo: {'OK' if logo_url else 'YOK'}")
+        log(f"🏢 {unvan} | Logo: {'✅' if logo_url else '❌'} | Web: {web_url[:20]}")
         return {"firma_adi": unvan, "web_url": web_url, "logo": logo_url}
-    except Exception as e:
-        log(f"   ⚠️ Hata: {str(e)}")
-        return None
+    except: return None
 
 def baslat():
-    log("🚀 NOKTA ATISI Tarama Başlatıldı")
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'}
+    log("🚀 İMDER/İSDER Nokta Atışı Botu Başladı")
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
     session = requests.Session()
     
     siteler = ["https://isder.org.tr/uyelerimiz/", "https://imder.org.tr/uyelerimiz/"]
     
     for ana_url in siteler:
-        log(f"🔗 Ana Sayfa: {ana_url}")
+        log(f"🔗 Tarama: {ana_url}")
         try:
             r = session.get(ana_url, headers=headers, timeout=20, verify=False)
             soup = BeautifulSoup(r.text, 'html.parser')
             
-            # Üye profil linklerini bulmak için genel tarama
+            # Sadece firma profil sayfalarını yakala
             links = []
             for a in soup.find_all('a', href=True):
                 h = a['href']
-                # Linkin içinde /uyelerimiz/ yoksa ama ana site adı varsa ve derinlik fazlaysa
-                if ana_url in h and h != ana_url:
-                    links.append(h)
-                elif (h.startswith('https://isder.org.tr/') or h.startswith('https://imder.org.tr/')) and len(h.split('/')) > 4:
-                    if not any(x in h for x in ['/category/', '/tag/', '/page/', '/wp-content/']):
+                # Linkin derinliğini ve dernek URL'sini kontrol et
+                if (h.startswith('https://isder.org.tr/') or h.startswith('https://imder.org.tr/')) and len(h.split('/')) > 4:
+                    if not any(x in h.lower() for x in ['etik', 'komite', 'uyelik', 'page']):
                         links.append(h)
 
-            unique_links = list(set(links))
-            log(f"📦 {len(unique_links)} firma bulundu.")
-
-            for link in unique_links:
+            for link in list(set(links)):
                 veri = detay_sayfasi_coz(link, session, headers)
                 if veri:
-                    status = airtable_ekle(veri)
-                    if status in [200, 201]:
-                        log(f"   ✅ {veri['firma_adi']} kaydedildi.")
+                    if airtable_ekle(veri) in [200, 201]:
+                        log(f"   ✅ {veri['firma_adi']} Airtable'a eklendi.")
                         processed_names.add(veri['firma_adi'])
                     time.sleep(1)
         except Exception as e:
-            log(f"❌ Ana sayfa hatası: {e}")
+            log(f"❌ Hata: {e}")
 
 if __name__ == "__main__":
     baslat()
