@@ -1,10 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
-import os
-import sys
-import time
-import urllib3
-import re
+import os, sys, time, urllib3, re
 from urllib.parse import urljoin
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -21,58 +17,59 @@ def airtable_ekle(data):
     url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
     headers = {"Authorization": f"Bearer {AIRTABLE_TOKEN}", "Content-Type": "application/json"}
     
-    # Airtable 'Attachment' (Ek) alanı formatı
-    # SÜTUN İSMİNİ BURADAN KONTROL ET: Eğer Airtable'da 'Logo' ise burayı da 'Logo' yap.
-    logo_field = [{"url": data.get("logo")}] if data.get("logo") else []
-    
+    # DİKKAT: Airtable'daki sütun isimlerin bunlarla BİREBİR aynı olmalı (Küçük/Büyük harf duyarlı)
     payload = {
         "fields": {
             "firma_adi": data.get("firma_adi"),
             "web_url": data.get("web_url"),
-            "logo": logo_field
+            "logo": [{"url": data.get("logo")}] if data.get("logo") else []
         }
     }
     try:
         res = requests.post(url, json=payload, headers=headers, timeout=15)
-        if res.status_code not in [200, 201]:
-            log(f"❌ Airtable Hatası ({res.status_code}): {res.text}")
         return res.status_code
-    except Exception as e:
-        log(f"❌ Airtable Bağlantı Hatası: {e}")
-        return 500
+    except: return 500
 
-def veri_ayikla(soup):
-    # Başlık (Firma Adı)
+def veri_ayikla(soup, link):
+    # 1. H1 Başlık Kontrolü
     unvan = soup.select_one('h1.elementor-heading-title')
-    unvan_text = unvan.get_text(strip=True) if unvan else None
+    if not unvan:
+        # Alternatif başlık denemesi
+        unvan = soup.select_one('h2')
     
-    if not unvan_text or any(x in unvan_text.lower() for x in ['üyelik', 'etik', 'komite']):
+    unvan_text = unvan.get_text(strip=True) if unvan else "Başlık Bulunamadı"
+    
+    # 2. Gereksiz sayfaları hızlıca ele
+    if any(x in unvan_text.lower() for x in ['üyelik', 'etik', 'komite', 'vizyon']):
         return None
 
-    logo_url = ""
-    web_url = ""
+    logo_url, web_url = "", ""
     
+    # 3. Kapsayıcı Kontrolü
     inner_box = soup.select_one('.e-con-inner')
-    if inner_box:
-        # LOGO BULUCU
-        img = inner_box.select_one('.elementor-widget-image img')
-        if img:
-            srcset = img.get('srcset')
-            if srcset:
-                logo_url = [p.strip().split(' ')[0] for p in srcset.split(',')][-1]
-            else:
-                logo_url = img.get('src') or img.get('data-src')
-            
-            # URL Temizliği (Airtable'ın sevmediği -300x300 gibi ekleri siler)
-            if logo_url:
-                logo_url = re.sub(r'-\d+x\d+', '', logo_url)
+    if not inner_box:
+        log(f"⚠️ {link} içinde '.e-con-inner' bulunamadı!")
+        return None
 
-        # WEB URL BULUCU
-        for row in inner_box.find_all('tr'):
-            if "Web Sitesi" in row.get_text():
-                a_tag = row.find('a')
-                web_url = a_tag.get('href') if a_tag else row.find_all('td')[-1].get_text(strip=True)
-                break
+    # Logo Bulucu
+    img = inner_box.select_one('.elementor-widget-image img')
+    if img:
+        srcset = img.get('srcset')
+        if srcset:
+            logo_url = [p.strip().split(' ')[0] for p in srcset.split(',')][-1]
+        else:
+            logo_url = img.get('src') or img.get('data-src')
+        
+        if logo_url:
+            logo_url = re.sub(r'-\d+x\d+', '', logo_url)
+
+    # Web Sitesi Bulucu (Tabloyu tarar)
+    for row in inner_box.find_all('tr'):
+        text = row.get_text()
+        if "Web Sitesi" in text or "Web" in text:
+            a_tag = row.find('a')
+            web_url = a_tag.get('href') if a_tag else row.find_all('td')[-1].get_text(strip=True)
+            break
 
     if not web_url or "http" not in web_url:
         return None
@@ -80,9 +77,12 @@ def veri_ayikla(soup):
     return {"firma_adi": unvan_text, "web_url": web_url, "logo": logo_url}
 
 def baslat():
-    log("🚀 İŞLEM BAŞLADI")
+    log("🚀 OPERASYON: SON ŞANS")
     session = requests.Session()
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0'}
+    # Gerçek kullanıcı gibi görünmek için detaylı header
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+    })
 
     siteler = [
         {"url": "https://imder.org.tr/uyelerimiz/", "domain": "imder.org.tr"},
@@ -90,36 +90,36 @@ def baslat():
     ]
 
     for site in siteler:
-        log(f"🔎 {site['domain']} taranıyor...")
-        try:
-            r = session.get(site["url"], headers=headers, timeout=20, verify=False)
-            soup = BeautifulSoup(r.text, 'html.parser')
-            
-            links = set()
-            for a in soup.find_all('a', href=True):
-                h = a['href']
-                if site["domain"] in h and len(h.split('/')) > 4:
-                    if not any(x in h.lower() for x in ['page', 'etik', 'komite', 'uyelik']):
-                        links.add(h)
+        log(f"🔎 {site['domain']} listesi çekiliyor...")
+        r = session.get(site["url"], timeout=30, verify=False)
+        soup = BeautifulSoup(r.text, 'html.parser')
+        
+        links = {urljoin(site["url"], a['href']) for a in soup.find_all('a', href=True) 
+                 if site["domain"] in a['href'] and len(a['href'].split('/')) > 4}
 
-            log(f"📦 {len(links)} adet link bulundu. Detaylara giriliyor...")
+        log(f"📦 {len(links)} link bulundu. İşleme alınıyor...")
 
-            for link in links:
-                try:
-                    detay_r = session.get(link, headers=headers, timeout=15, verify=False)
-                    veri = veri_ayikla(BeautifulSoup(detay_r.text, 'html.parser'))
-                    
-                    if veri:
-                        if veri["logo"] and not veri["logo"].startswith('http'):
-                            veri["logo"] = urljoin(link, veri["logo"])
-                        
-                        status = airtable_ekle(veri)
-                        log(f"🏢 {veri['firma_adi']} -> Durum: {status}")
-                        time.sleep(0.5)
-                except Exception as e:
+        for link in list(links)[:10]: # TEST İÇİN ŞİMDİLİK İLK 10 LİNK
+            try:
+                log(f"🔗 Sayfaya giriliyor: {link}")
+                detay_r = session.get(link, timeout=15, verify=False)
+                if detay_r.status_code != 200:
+                    log(f"❌ Sayfa açılmadı: {detay_r.status_code}")
                     continue
-        except Exception as e:
-            log(f"❌ Ana sayfa hatası: {e}")
+                
+                veri = veri_ayikla(BeautifulSoup(detay_r.text, 'html.parser'), link)
+                if veri:
+                    if veri["logo"] and not veri["logo"].startswith('http'):
+                        veri["logo"] = urljoin(link, veri["logo"])
+                    
+                    status = airtable_ekle(veri)
+                    log(f"✅ {veri['firma_adi']} -> Airtable: {status}")
+                else:
+                    log(f"❓ Veri ayıklanamadı: {link}")
+                
+                time.sleep(1) # Banlanmamak için şart
+            except Exception as e:
+                log(f"💥 Hata: {str(e)}")
 
 if __name__ == "__main__":
     baslat()
