@@ -1,13 +1,13 @@
-# 🤖 MakineAI Firma Tarama Botu
+# 🤖 MakineAI Web Tarama Botu
 
-Bu bot, Excel dosyasındaki firmaların web sitelerini tarar, logolarını bulur ve sonuçları otomatik olarak Airtable'a aktarır.
+Bu bot, belirlenen firmaların resmi web sitelerine gider, site içeriğini analiz eder ve firmaya ait kurumsal bilgileri (logo, iletişim vb.) ayıklayarak Airtable'a aktarır.
 
-## 🚀 Nasıl Çalışır?
-1. `mai_firmalar.xlsx` dosyası güncellendiğinde otomatik tetiklenir.
-2. Python ve BeautifulSoup kullanarak web sitelerini analiz eder.
-3. Airtable API aracılığıyla verileri tabloya işler.
+## 🔍 Neler Yapar?
+1. Verilen web adreslerini tek tek ziyaret eder.
+2. Web sitesi kodları (HTML) içinde logo ve kurumsal kimlik izlerini sürer.
+3. Bulduğu verileri anlık olarak Airtable veritabanına işler.
 
-## 📁 Dosya Yapısı
-- `tarama.py`: Ana işlem kodu.
-- `requirements.txt`: Gerekli kütüphaneler.
-- `.github/workflows/run_python.yml`: Otomasyon ayarları.
+## 🛠️ Teknik Altyapı
+- **Dil:** Python 3.9
+- **Kütüphaneler:** BeautifulSoup4 (Web Kazıma), Requests (Web Bağlantısı)
+- **Veri Deposu:** Airtable API
