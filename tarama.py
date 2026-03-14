@@ -6,8 +6,10 @@ import time
 import urllib3
 from urllib.parse import urljoin
 
+# Gereksiz uyarıları kapat, temiz log alalım
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+# Airtable Bilgileri
 AIRTABLE_TOKEN = os.environ.get('AIRTABLE_TOKEN')
 AIRTABLE_BASE_ID = os.environ.get('AIRTABLE_BASE_ID')
 AIRTABLE_TABLE_NAME = os.environ.get('AIRTABLE_TABLE_NAME')
@@ -20,6 +22,7 @@ def airtable_ekle(data):
     url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
     headers = {"Authorization": f"Bearer {AIRTABLE_TOKEN}", "Content-Type": "application/json"}
     
+    # Airtable 'Attachment' alanı için format
     logo_field = [{"url": data.get("logo")}] if data.get("logo") else []
     
     payload = {
@@ -35,46 +38,61 @@ def airtable_ekle(data):
     except: return 500
 
 def veri_ayikla(soup):
-    # Firma Unvanı
+    # 1. FIRMA ADI (H1 her zaman en üstteki başlıktır)
     unvan = soup.select_one('h1.elementor-heading-title')
     unvan_text = unvan.get_text(strip=True) if unvan else None
-    if not unvan_text or any(x in unvan_text.lower() for x in ['üyelik', 'etik', 'komite']): return None
+    
+    # Gereksiz sayfaları (Komite, Vizyon vb.) en baştan ele
+    if not unvan_text or any(x in unvan_text.lower() for x in ['üyelik', 'etik', 'komite']):
+        return None
+
+    # 2. SENİN VERDİĞİN VERİNİN OLDUĞU ANA KUTU (e-con-inner)
+    # Bot artık bu kutunun dışına çıkıp kafasını karıştırmayacak.
+    inner_box = soup.select_one('.e-con-inner')
+    if not inner_box: return None
 
     logo_url = ""
     web_url = ""
     
-    # Senin verdiğin e-con-inner kutusuna odaklan
-    inner_box = soup.select_one('.e-con-inner')
-    if inner_box:
-        # LOGO AVCI
-        img = inner_box.select_one('.elementor-widget-image img')
-        if img:
-            srcset = img.get('srcset')
-            if srcset:
-                logo_url = srcset.split(',')[0].split(' ')[0].strip()
-            if not logo_url or "data:image" in logo_url:
-                logo_url = img.get('src') or img.get('data-src')
+    # --- LOGO AVCI ---
+    # inner_box içindeki ilk resmi bul
+    img = inner_box.select_one('.elementor-widget-image img')
+    if img:
+        # Öncelik: srcset (Senin verdiğin kodda .webp uzantılı kaliteli linkler burada)
+        srcset = img.get('srcset')
+        if srcset:
+            logo_url = srcset.split(',')[0].split(' ')[0].strip()
+        # Eğer srcset yoksa veya boşsa src/data-src bak
+        if not logo_url or "data:image" in logo_url:
+            logo_url = img.get('src') or img.get('data-src')
 
-        # WEB URL AVCI (Tablo içinden nokta atışı)
-        rows = inner_box.find_all('tr')
-        for row in rows:
-            if "Web Sitesi" in row.get_text():
-                a_tag = row.find('a')
-                if a_tag:
-                    web_url = a_tag.get('href')
-                else:
-                    tds = row.find_all('td')
-                    if len(tds) > 1: web_url = tds[1].get_text(strip=True)
-                break
+    # --- WEB URL AVCI ---
+    # Tablodaki "Web Sitesi" yazan satırı bul
+    rows = inner_box.find_all('tr')
+    for row in rows:
+        row_text = row.get_text()
+        if "Web Sitesi" in row_text:
+            a_tag = row.find('a')
+            if a_tag:
+                web_url = a_tag.get('href')
+            else:
+                # Eğer link değil de düz metin yazılmışsa (td'nin içini al)
+                tds = row.find_all('td')
+                if len(tds) > 1:
+                    web_url = tds[1].get_text(strip=True)
+            break
 
-    if not web_url or "http" not in web_url: return None
+    # Eğer kritik olan web_url yoksa çöp veridir, gönderme
+    if not web_url or "http" not in web_url:
+        return None
     
     return {"firma_adi": unvan_text, "web_url": web_url, "logo": logo_url}
 
 def baslat():
-    log("🚀 TARAMA BAŞLATILDI (Node.js uyarısı susturuldu)")
+    log("🚀 LOGO VE WEB URL ODAKLI SAF TARAMA BAŞLADI")
     session = requests.Session()
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0'}
+    # Kendimizi bir tarayıcı gibi tanıtıyoruz
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0 Safari/537.36'}
 
     siteler = [
         {"url": "https://imder.org.tr/uyelerimiz/", "domain": "imder.org.tr"},
@@ -87,6 +105,7 @@ def baslat():
             r = session.get(site["url"], headers=headers, timeout=20, verify=False)
             soup = BeautifulSoup(r.text, 'html.parser')
             
+            # Üye detay linklerini topla
             links = set()
             for a in soup.find_all('a', href=True):
                 h = a['href']
@@ -101,12 +120,13 @@ def baslat():
                     veri = veri_ayikla(detay_soup)
                     
                     if veri:
+                        # Göreceli URL'leri (/) tam adrese çevir
                         if veri["logo"] and not veri["logo"].startswith('http'):
                             veri["logo"] = urljoin(link, veri["logo"])
                         
                         status = airtable_ekle(veri)
                         log(f"   🏢 {veri['firma_adi']} | Logo: {'✅' if veri['logo'] else '❌'} | Airtable: {status}")
-                        time.sleep(1)
+                        time.sleep(1) # Airtable'ı yormamak için kısa bekleme
                 except: continue
         except Exception as e:
             log(f"❌ Hata: {e}")
