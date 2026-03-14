@@ -33,10 +33,10 @@ def veri_ayikla(soup):
     if not unvan_text or any(x in unvan_text.lower() for x in ['üyelik', 'etik', 'komite']): return None
 
     logo_url, web_url = "", ""
-    inner_box = soup.select_one('.e-con-inner') # Senin verdigin altın kapsayıcı
+    inner_box = soup.select_one('.e-con-inner') # Senin verdiğin altın kapsayıcı
     
     if inner_box:
-        # Logo: srcset icindeki temiz linki al
+        # Logo: srcset içindeki temiz linki al
         img = inner_box.select_one('.elementor-widget-image img')
         if img:
             srcset = img.get('srcset')
@@ -53,7 +53,7 @@ def veri_ayikla(soup):
     return {"firma_adi": unvan_text, "web_url": web_url, "logo": logo_url}
 
 def baslat():
-    log("🚀 KURTARMA OPERASYONU BASLADI")
+    log("🚀 KURTARMA OPERASYONU BAŞLADI")
     session = requests.Session()
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0'}
 
