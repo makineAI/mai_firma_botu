@@ -8,7 +8,6 @@ from urllib.parse import urljoin
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Airtable Bilgileri
 AIRTABLE_TOKEN = os.environ.get('AIRTABLE_TOKEN')
 AIRTABLE_BASE_ID = os.environ.get('AIRTABLE_BASE_ID')
 AIRTABLE_TABLE_NAME = os.environ.get('AIRTABLE_TABLE_NAME')
@@ -36,29 +35,27 @@ def airtable_ekle(data):
     except: return 500
 
 def veri_ayikla(soup):
-    # 1. FIRMA UNVANI (H1 her zaman sabit)
+    # 1. UNVAN
     unvan = soup.select_one('h1.elementor-heading-title')
     unvan_text = unvan.get_text(strip=True) if unvan else None
     if not unvan_text or any(x in unvan_text.lower() for x in ['üyelik', 'etik', 'komite']): return None
 
-    # 2. LOGO VE WEB URL (Senin verdiğin e-con-inner yapısı içinde)
     logo_url = ""
     web_url = ""
     
-    # Ana kapsayıcıyı bul
+    # 2. SENİN VERDİĞİN E-CON-INNER YAPISI
     inner_box = soup.select_one('.e-con-inner')
     if inner_box:
-        # LOGO BULUCU
+        # Logo Avcısı
         img = inner_box.select_one('.elementor-widget-image img')
         if img:
-            # Önce srcset (Çünkü verdiğin kodda .webp linkleri burada)
             srcset = img.get('srcset')
             if srcset:
                 logo_url = srcset.split(',')[0].split(' ')[0].strip()
             if not logo_url or "data:image" in logo_url:
                 logo_url = img.get('src') or img.get('data-src')
 
-        # WEB URL BULUCU (Tablo içinden nokta atışı)
+        # Web Sitesi Avcısı (Tablodan)
         rows = inner_box.find_all('tr')
         for row in rows:
             if "Web Sitesi" in row.get_text():
@@ -66,10 +63,8 @@ def veri_ayikla(soup):
                 if a_tag:
                     web_url = a_tag.get('href')
                 else:
-                    # Link yoksa td içindeki metni al
                     tds = row.find_all('td')
-                    if len(tds) > 1:
-                        web_url = tds[1].get_text(strip=True)
+                    if len(tds) > 1: web_url = tds[1].get_text(strip=True)
                 break
 
     if not web_url or "http" not in web_url: return None
@@ -77,7 +72,7 @@ def veri_ayikla(soup):
     return {"firma_adi": unvan_text, "web_url": web_url, "logo": logo_url}
 
 def baslat():
-    log("🚀 KESİN SONUÇ İÇİN TARAMA BAŞLADI")
+    log("🚀 TARAMA VE ANALIZ BASLATILDI")
     session = requests.Session()
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0'}
 
@@ -87,7 +82,7 @@ def baslat():
     ]
 
     for site in siteler:
-        log(f"🔎 {site['domain'].upper()} taranıyor...")
+        log(f"🔎 {site['domain'].upper()} listesi çekiliyor...")
         try:
             r = session.get(site["url"], headers=headers, timeout=20, verify=False)
             soup = BeautifulSoup(r.text, 'html.parser')
@@ -110,11 +105,11 @@ def baslat():
                             veri["logo"] = urljoin(link, veri["logo"])
                         
                         status = airtable_ekle(veri)
-                        log(f"   🏢 {veri['firma_adi']} | Logo: {'✅' if veri['logo'] else '❌'} | Web: ✅")
+                        log(f"   🏢 {veri['firma_adi']} | Logo: {'✅' if veri['logo'] else '❌'}")
                         time.sleep(1)
                 except: continue
         except Exception as e:
-            log(f"❌ Ana Sayfa Hatası: {e}")
+            log(f"❌ Hata: {e}")
 
 if __name__ == "__main__":
     baslat()
