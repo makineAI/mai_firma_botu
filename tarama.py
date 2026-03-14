@@ -16,8 +16,6 @@ def log(msg):
 def airtable_ekle(data):
     url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
     headers = {"Authorization": f"Bearer {AIRTABLE_TOKEN}", "Content-Type": "application/json"}
-    
-    # DİKKAT: Airtable'daki sütun isimlerin bunlarla BİREBİR aynı olmalı (Küçük/Büyük harf duyarlı)
     payload = {
         "fields": {
             "firma_adi": data.get("firma_adi"),
@@ -30,58 +28,51 @@ def airtable_ekle(data):
         return res.status_code
     except: return 500
 
-def veri_ayikla(soup, link):
-    # 1. H1 Başlık Kontrolü
-    unvan = soup.select_one('h1.elementor-heading-title')
-    if not unvan:
-        # Alternatif başlık denemesi
-        unvan = soup.select_one('h2')
+def veri_ayikla(html, link):
+    soup = BeautifulSoup(html, 'html.parser')
     
-    unvan_text = unvan.get_text(strip=True) if unvan else "Başlık Bulunamadı"
+    # 1. Başlık: H1 yoksa Title'dan al (Daha garantidir)
+    unvan = soup.select_one('h1.elementor-heading-title') or soup.select_one('h1')
+    unvan_text = unvan.get_text(strip=True) if unvan else soup.title.string.split('|')[0].strip()
     
-    # 2. Gereksiz sayfaları hızlıca ele
-    if any(x in unvan_text.lower() for x in ['üyelik', 'etik', 'komite', 'vizyon']):
-        return None
+    if any(x in unvan_text.lower() for x in ['başvurusu', 'iletisim', 'uyelerimiz']): return None
 
     logo_url, web_url = "", ""
-    
-    # 3. Kapsayıcı Kontrolü
-    inner_box = soup.select_one('.e-con-inner')
-    if not inner_box:
-        log(f"⚠️ {link} içinde '.e-con-inner' bulunamadı!")
-        return None
 
-    # Logo Bulucu
-    img = inner_box.select_one('.elementor-widget-image img')
-    if img:
-        srcset = img.get('srcset')
-        if srcset:
-            logo_url = [p.strip().split(' ')[0] for p in srcset.split(',')][-1]
-        else:
-            logo_url = img.get('src') or img.get('data-src')
-        
-        if logo_url:
-            logo_url = re.sub(r'-\d+x\d+', '', logo_url)
-
-    # Web Sitesi Bulucu (Tabloyu tarar)
-    for row in inner_box.find_all('tr'):
-        text = row.get_text()
-        if "Web Sitesi" in text or "Web" in text:
-            a_tag = row.find('a')
-            web_url = a_tag.get('href') if a_tag else row.find_all('td')[-1].get_text(strip=True)
+    # 2. LOGO: Sayfadaki en büyük resmi veya 'logo' geçen ilk resmi bul
+    images = soup.find_all('img')
+    for img in images:
+        src = img.get('srcset', '').split(' ')[0] or img.get('src') or img.get('data-src')
+        if src and any(x in src.lower() for x in ['logo', 'member', 'uye']):
+            logo_url = urljoin(link, src)
             break
 
-    if not web_url or "http" not in web_url:
-        return None
+    # 3. WEB URL: 'http' içeren ve firma ismiyle eşleşmeyen dış linkleri tara
+    # Tabloyu bulamazsa bile a etiketlerinden ayıklamaya çalışır
+    links = soup.find_all('a', href=True)
+    for a in links:
+        href = a['href']
+        if "http" in href and not any(x in href for x in ['imder.org.tr', 'isder.org.tr', 'facebook', 'linkedin', 'instagram', 'twitter']):
+            web_url = href
+            break
+
+    if not web_url: return None
     
+    # Logo URL temizliği
+    if logo_url: logo_url = re.sub(r'-\d+x\d+', '', logo_url)
+
     return {"firma_adi": unvan_text, "web_url": web_url, "logo": logo_url}
 
 def baslat():
-    log("🚀 OPERASYON: SON ŞANS")
+    log("🚀 OPERASYON: RADİKAL ÇÖZÜM")
     session = requests.Session()
-    # Gerçek kullanıcı gibi görünmek için detaylı header
+    # EN ÜST SEVİYE HEADER (Tarayıcı taklidi)
     session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
     })
 
     siteler = [
@@ -90,36 +81,36 @@ def baslat():
     ]
 
     for site in siteler:
-        log(f"🔎 {site['domain']} listesi çekiliyor...")
-        r = session.get(site["url"], timeout=30, verify=False)
-        soup = BeautifulSoup(r.text, 'html.parser')
-        
-        links = {urljoin(site["url"], a['href']) for a in soup.find_all('a', href=True) 
-                 if site["domain"] in a['href'] and len(a['href'].split('/')) > 4}
+        log(f"🔎 {site['domain']} ana listesi çekiliyor...")
+        try:
+            r = session.get(site["url"], timeout=30, verify=False)
+            soup = BeautifulSoup(r.text, 'html.parser')
+            
+            # Sadece firma olabilecek linkleri filtrele (link sonu / ile bitenler genelde firmadır)
+            links = {urljoin(site["url"], a['href']) for a in soup.find_all('a', href=True) 
+                     if site["domain"] in a['href'] and len(a['href'].strip('/').split('/')) >= 3}
 
-        log(f"📦 {len(links)} link bulundu. İşleme alınıyor...")
-
-        for link in list(links)[:10]: # TEST İÇİN ŞİMDİLİK İLK 10 LİNK
-            try:
-                log(f"🔗 Sayfaya giriliyor: {link}")
-                detay_r = session.get(link, timeout=15, verify=False)
-                if detay_r.status_code != 200:
-                    log(f"❌ Sayfa açılmadı: {detay_r.status_code}")
-                    continue
+            for link in links:
+                if any(x in link for x in ['/page/', '/etik-', '/komite', '/uyelik', '/mavi-yaka', '/beyaz-yaka', '/iletisim', '/uyelerimiz/']): continue
                 
-                veri = veri_ayikla(BeautifulSoup(detay_r.text, 'html.parser'), link)
-                if veri:
-                    if veri["logo"] and not veri["logo"].startswith('http'):
-                        veri["logo"] = urljoin(link, veri["logo"])
+                try:
+                    log(f"🔗 Giriliyor: {link}")
+                    detay_r = session.get(link, timeout=15, verify=False)
+                    if "cloudflare" in detay_r.text.lower():
+                        log("⚠️ Cloudflare engeline takıldık!")
+                        continue
                     
-                    status = airtable_ekle(veri)
-                    log(f"✅ {veri['firma_adi']} -> Airtable: {status}")
-                else:
-                    log(f"❓ Veri ayıklanamadı: {link}")
-                
-                time.sleep(1) # Banlanmamak için şart
-            except Exception as e:
-                log(f"💥 Hata: {str(e)}")
+                    veri = veri_ayikla(detay_r.text, link)
+                    if veri:
+                        status = airtable_ekle(veri)
+                        log(f"✅ {veri['firma_adi']} -> Airtable: {status}")
+                    else:
+                        log(f"❌ Veri boş: {link}")
+                    
+                    time.sleep(2) # Engellenmemek için süreyi artırdık
+                except: continue
+        except Exception as e:
+            log(f"💥 Ana hata: {e}")
 
 if __name__ == "__main__":
     baslat()
