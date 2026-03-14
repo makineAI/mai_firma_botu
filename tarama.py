@@ -17,7 +17,6 @@ def airtable_ekle(data):
     url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
     headers = {"Authorization": f"Bearer {AIRTABLE_TOKEN}", "Content-Type": "application/json"}
     
-    # Airtable'da 'platform' isminde bir sütun (Single line text) açtığından emin ol
     payload = {
         "fields": {
             "firma_adi": data.get("firma_adi"),
@@ -34,34 +33,33 @@ def airtable_ekle(data):
 def veri_ayikla(html, link, platform_adi):
     soup = BeautifulSoup(html, 'html.parser')
     
+    # 1. Başlık ve Gereksiz Sayfa Filtresi
     unvan = soup.select_one('h1.elementor-heading-title') or soup.select_one('h1')
     unvan_text = unvan.get_text(strip=True) if unvan else ""
     
-    # Gereksiz sayfaları filtrele
     yasakli = ['bülten', 'haber', 'duyuru', 'komite', 'üyelik', 'etik', 'vizyon', 'iletisim', 'yaka-is']
     if not unvan_text or any(x in unvan_text.lower() for x in yasakli):
         return None
 
     logo_url, web_url = "", ""
 
-    # --- NOKTA ATIŞI LOGO AVCISI (srcset Parçalama) ---
-    img_tag = soup.select_one('.elementor-widget-image img') or soup.select_one('img[class*="wp-image"]')
+    # 2. LOGO AVCISI (Senin gönderdiğin srcset yapısına göre)
+    img_tag = soup.select_one('.elementor-widget-image img')
     if img_tag:
         srcset = img_tag.get('srcset')
         if srcset:
-            # Virgülle ayrılan linklerden en sondaki (en büyük olanı) al
-            parts = srcset.split(',')
-            best_link = parts[-1].strip().split(' ')[0]
-            logo_url = best_link
+            # Virgülle ayrılan linkleri listeye al ve en sondakini (en büyük olanı) seç
+            parts = [p.strip().split(' ')[0] for p in srcset.split(',')]
+            logo_url = parts[-1] 
         else:
             logo_url = img_tag.get('src') or img_tag.get('data-src')
 
-        # Temizlik: -300x300 gibi boyut eklerini silerek orijinal dosyaya ulaş
+        # Linki temizle: -300x300 gibi boyutları SİL, sadece saf dosya ismini bırak
         if logo_url:
             logo_url = re.sub(r'-\d+x\d+', '', logo_url)
             logo_url = urljoin(link, logo_url)
 
-    # --- WEB SİTESİ BULUCU ---
+    # 3. WEB URL (Tablo tarama)
     for row in soup.find_all('tr'):
         if "Web Sitesi" in row.get_text():
             a = row.find('a')
@@ -72,7 +70,7 @@ def veri_ayikla(html, link, platform_adi):
     return {"firma_adi": unvan_text, "web_url": web_url, "logo": logo_url, "platform": platform_adi}
 
 def baslat():
-    log("🚀 PLATFORM VE LOGO ODAKLI OPERASYON BAŞLADI")
+    log("🚀 SON KURŞUN: PLATFORM & LOGO OPERASYONU")
     session = requests.Session()
     session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0'})
 
@@ -82,20 +80,21 @@ def baslat():
     ]
 
     for site in siteler:
-        log(f"🔎 {site['platform'].upper()} sitesi taranıyor...")
+        log(f"🔎 {site['platform'].upper()} taranıyor...")
         try:
             r = session.get(site["url"], timeout=30, verify=False)
             soup = BeautifulSoup(r.text, 'html.parser')
             
-            # Linkleri toplama: Daha kapsayıcı bir seçici
+            # Daha esnek link toplama
+            domain = site['platform'] + ".org.tr"
             links = set()
             for a in soup.find_all('a', href=True):
-                href = a['href']
-                if site['platform'] in href and len(href.strip('/').split('/')) >= 4:
-                    if not any(x in href for x in ['/page/', '/etik-', '/komite', '/uyelik', '/iletisim']):
-                        links.add(urljoin(site["url"], href))
+                h = a['href']
+                if domain in h and len(h.strip('/').split('/')) >= 4:
+                    if not any(x in h.lower() for x in ['page', 'etik', 'komite', 'bulten', 'haber']):
+                        links.add(urljoin(site["url"], h))
 
-            log(f"📦 {len(links)} firma linki bulundu. Detaylar işleniyor...")
+            log(f"📦 {len(links)} adet potansiyel firma linki işleniyor...")
 
             for link in links:
                 try:
@@ -103,10 +102,10 @@ def baslat():
                     veri = veri_ayikla(detay_r.text, link, site['platform'])
                     if veri:
                         status = airtable_ekle(veri)
-                        log(f"✅ [{site['platform']}] {veri['firma_adi']} | Airtable: {status}")
-                        time.sleep(1) 
+                        log(f"✅ [{veri['platform']}] {veri['firma_adi']} | Logo: {'Tamam' if veri['logo'] else 'Yok'} | Airtable: {status}")
+                        time.sleep(1)
                 except: continue
-        except Exception as e: log(f"💥 Hata: {e}")
+        except Exception as e: log(f"💥 Kritik Hata: {e}")
 
 if __name__ == "__main__":
     baslat()
