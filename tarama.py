@@ -35,7 +35,7 @@ def airtable_ekle(data):
     except: return 500
 
 def veri_ayikla(soup):
-    # 1. UNVAN
+    # Firma Unvanı
     unvan = soup.select_one('h1.elementor-heading-title')
     unvan_text = unvan.get_text(strip=True) if unvan else None
     if not unvan_text or any(x in unvan_text.lower() for x in ['üyelik', 'etik', 'komite']): return None
@@ -43,10 +43,10 @@ def veri_ayikla(soup):
     logo_url = ""
     web_url = ""
     
-    # 2. SENİN VERDİĞİN E-CON-INNER YAPISI
+    # Senin verdiğin e-con-inner kutusuna odaklan
     inner_box = soup.select_one('.e-con-inner')
     if inner_box:
-        # Logo Avcısı
+        # LOGO AVCI
         img = inner_box.select_one('.elementor-widget-image img')
         if img:
             srcset = img.get('srcset')
@@ -55,7 +55,7 @@ def veri_ayikla(soup):
             if not logo_url or "data:image" in logo_url:
                 logo_url = img.get('src') or img.get('data-src')
 
-        # Web Sitesi Avcısı (Tablodan)
+        # WEB URL AVCI (Tablo içinden nokta atışı)
         rows = inner_box.find_all('tr')
         for row in rows:
             if "Web Sitesi" in row.get_text():
@@ -72,7 +72,7 @@ def veri_ayikla(soup):
     return {"firma_adi": unvan_text, "web_url": web_url, "logo": logo_url}
 
 def baslat():
-    log("🚀 TARAMA VE ANALIZ BASLATILDI")
+    log("🚀 TARAMA BAŞLATILDI (Node.js uyarısı susturuldu)")
     session = requests.Session()
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0'}
 
@@ -82,7 +82,7 @@ def baslat():
     ]
 
     for site in siteler:
-        log(f"🔎 {site['domain'].upper()} listesi çekiliyor...")
+        log(f"🔎 {site['domain'].upper()} taranıyor...")
         try:
             r = session.get(site["url"], headers=headers, timeout=20, verify=False)
             soup = BeautifulSoup(r.text, 'html.parser')
@@ -105,7 +105,7 @@ def baslat():
                             veri["logo"] = urljoin(link, veri["logo"])
                         
                         status = airtable_ekle(veri)
-                        log(f"   🏢 {veri['firma_adi']} | Logo: {'✅' if veri['logo'] else '❌'}")
+                        log(f"   🏢 {veri['firma_adi']} | Logo: {'✅' if veri['logo'] else '❌'} | Airtable: {status}")
                         time.sleep(1)
                 except: continue
         except Exception as e:
