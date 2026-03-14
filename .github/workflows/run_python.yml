@@ -1,0 +1,32 @@
+name: Firma Tarama Botu
+
+on:
+  workflow_dispatch: # Manuel olarak baslatmak icin
+  schedule:
+    - cron: '0 0 1 * *' # Her ayın 1. günü, gece 00:00'da otomatik çalışır
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # GitHub uyarılarını kapatmak için
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kodu Cek
+        uses: actions/checkout@v4
+
+      - name: Python Kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Kütüphaneleri Yükle
+        run: |
+          pip install requests beautifulsoup4
+
+      - name: Botu Calistir
+        env:
+          AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
+          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
+          AIRTABLE_TABLE_NAME: ${{ secrets.AIRTABLE_TABLE_NAME }}
+        run: python tarama.py
